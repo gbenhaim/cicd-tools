@@ -83,9 +83,11 @@ rm -rf "$BONFIRE_ROOT"
 echo "Fetching branch '$BONFIRE_REPO_BRANCH' of https://github.com/${BONFIRE_REPO_ORG}/cicd-tools.git"
 git clone --branch "$BONFIRE_REPO_BRANCH" "https://github.com/${BONFIRE_REPO_ORG}/cicd-tools.git" "$BONFIRE_ROOT"
 
-# Do a docker login to ensure our later 'docker pull' calls have an auth file created
-source "${CICD_ROOT}/_common_container_logic.sh"
-login
+if [[ -z "$SKIP_REGISTRY_LOGIN" ]]; then
+  # Do a docker login to ensure our later 'docker pull' calls have an auth file created
+  source ${CICD_ROOT}/_common_container_logic.sh
+  login
+fi
 
 # Gives access to helper commands such as "oc_wrapper"
 add_cicd_bin_to_path() {
