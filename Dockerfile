@@ -1,7 +1,8 @@
 FROM registry.access.redhat.com/ubi9/python-39:latest
 
 RUN pip install --upgrade pip "setuptools<58" wheel && \
-    pip install "pipenv==2023.7.23"
+    pip install "pipenv==2023.7.23" \
+    pip install "awscli==1.29.28"
 
 RUN curl https://downloads-openshift-console.apps.stone-prd-rh01.pg1f.p1.openshiftapps.com/amd64/linux/oc.tar \
     | tar -C /opt/app-root/bin/ -xvf -
