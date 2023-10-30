@@ -2,6 +2,13 @@
 
 set -o pipefail
 
+cleanup() {
+
+    local pid="${1:?}"
+    kill -9 "$pid" || :
+
+}
+
 main() {
     # Mandatory arguments
     local ns="${1:?Namespace was not provided}"
@@ -29,7 +36,7 @@ main() {
     export BONFIRE_NS_REQUESTER="$ns_requester"
 
     # Invoke the CJI using the options set via env vars
-    bonfire deploy-iqe-cji "$component_name" \
+    pod=$(bonfire deploy-iqe-cji "$component_name" \
     --marker "$iqe_marker_expression" \
     --filter "$iqe_filter_expression" \
     --image-tag "${iqe_image_tag}" \
@@ -40,7 +47,12 @@ main() {
     --env "$iqe_env" \
     --cji-name "$cji_name" \
     $selenium_arg \
-    --namespace "$ns"
+    --namespace "$ns")
+
+    container=$(oc_wrapper get pod $pod -n $ns -o jsonpath="{.status.containerStatuses[0].name}")
+    oc_wrapper logs -n $ns $pod -c $container -f &
+    pid=$!
+    trap "cleanup $pid" EXIT
 
     oc_wrapper wait "--timeout=$iqe_cji_timeout" --for=condition=JobInvocationComplete -n "$ns" "cji/$cji_name"
     oc_wrapper get -o json -n "$ns" "cji/$cji_name" | check_cji_jobs.py
