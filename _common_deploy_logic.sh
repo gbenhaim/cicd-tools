@@ -16,15 +16,8 @@
 
 add_cicd_bin_to_path
 
-function trap_proxy {
-    # https://stackoverflow.com/questions/9256644/identifying-received-signal-name-in-bash
-    func="$1"; shift
-    for sig; do
-        trap "$func $sig" "$sig"
-    done
-}
-
-trap_proxy teardown EXIT ERR SIGINT SIGTERM
+# this replaces 'job_cleanup' set in bootstrap.sh, so we make sure to run that at the end of 'teardown'
+trap teardown EXIT ERR SIGINT SIGTERM
 
 set -e
 
@@ -70,18 +63,15 @@ function collect_k8s_artifacts() {
 }
 
 function teardown {
-    local CAPTURED_SIGNAL="$1"
+    [ "$TEARDOWN_RAN" -ne "0" ] && return
 
     add_cicd_bin_to_path
 
     set +x
-    [ "$TEARDOWN_RAN" -ne "0" ] && return
     echo "------------------------"
     echo "----- TEARING DOWN -----"
     echo "------------------------"
     local ns
-
-    echo "Tear down operation triggered by signal: $CAPTURED_SIGNAL"
 
     # run teardown on all namespaces possibly reserved in this run
     RESERVED_NAMESPACES=("${NAMESPACE}" "${DB_NAMESPACE}" "${SMOKE_NAMESPACE}")
@@ -105,6 +95,9 @@ function teardown {
         fi
         set -e
     done
+
+    job_cleanup
+
     TEARDOWN_RAN=1
 }
 
@@ -118,6 +111,21 @@ function transform_arg {
     done
     echo "$options"
 }
+
+function transform_template_ref {
+    # transform set-template-ref to "$1" options for bonfire
+    options=""
+    option="$1"; shift;
+    components="$@"
+    for c in $components; do
+        options="$options $option $c=$GIT_COMMIT"
+    done
+    echo "$options"
+}
+
+if [ ! -z "$COMPONENT_NAME" ]; then
+    export TEMPLATE_REF_ARG=$(transform_template_ref --set-template-ref $COMPONENT_NAME)
+fi
 
 if [ ! -z "$COMPONENTS" ]; then
     export COMPONENTS_ARG=$(transform_arg --component $COMPONENTS)

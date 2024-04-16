@@ -13,9 +13,20 @@ if test -f unit_test.sh; then
   fi
 fi
 
+# Create tmp dir to store data in during job run (do NOT store in $WORKSPACE)
+export TMP_JOB_DIR=$(mktemp -d -p "$HOME" -t "jenkins-${JOB_NAME}-${BUILD_NUMBER}-XXXXXX")
+echo "job tmp dir location: $TMP_JOB_DIR"
+
+function job_cleanup() {
+    echo "in job_cleanup handler, removing tmp dir: $TMP_JOB_DIR"
+    rm -fr $TMP_JOB_DIR
+}
+
+trap job_cleanup EXIT ERR SIGINT SIGTERM
+
 export APP_ROOT=$(pwd)
 export WORKSPACE=${WORKSPACE:-$APP_ROOT}  # if running in jenkins, use the build's workspace
-export BONFIRE_ROOT=${WORKSPACE}/.bonfire
+export BONFIRE_ROOT=${TMP_JOB_DIR}/.bonfire
 export CICD_ROOT=${BONFIRE_ROOT}
 export IMAGE_TAG=$(git rev-parse --short=7 HEAD)
 export BONFIRE_BOT="true"
@@ -23,34 +34,31 @@ export BONFIRE_NS_REQUESTER="${JOB_NAME}-${BUILD_NUMBER}"
 # which branch to fetch cicd scripts from in bonfire repo
 export BONFIRE_REPO_BRANCH="${BONFIRE_REPO_BRANCH:-main}"
 export BONFIRE_REPO_ORG="${BONFIRE_REPO_ORG:-RedHatInsights}"
+export ENABLE_TELEMETRY="true"
+SUPPORTED_CLUSTERS=('ephemeral' 'crcd')
+if [[ -z "${AVAILABLE_CLUSTERS[*]}" ]]; then
+    AVAILABLE_CLUSTERS=("${SUPPORTED_CLUSTERS[@]}")
+fi
 
 set -x
-# Set up docker cfg
-export DOCKER_CONFIG="$WORKSPACE/.docker"
-rm -fr $DOCKER_CONFIG
-mkdir $DOCKER_CONFIG
 
-# Set up podman cfg
-# No longer needed due to podman now using the DOCKER_CONFIG
-#AUTH_CONF_DIR="$WORKSPACE/.podman"
-#rm -fr $AUTH_CONF_DIR
-#mkdir $AUTH_CONF_DIR
-#export REGISTRY_AUTH_FILE="$AUTH_CONF_DIR/auth.json"
+# Set up docker cfg
+export DOCKER_CONFIG="${TMP_JOB_DIR}/.docker"
+mkdir "$DOCKER_CONFIG"
 
 # Set up kube cfg
-export KUBECONFIG_DIR="$WORKSPACE/.kube"
-export KUBECONFIG="$KUBECONFIG_DIR/config"
-rm -fr $KUBECONFIG_DIR
-mkdir $KUBECONFIG_DIR
+export KUBECONFIG_DIR="${TMP_JOB_DIR}/.kube"
+export KUBECONFIG="${KUBECONFIG_DIR}/config"
+mkdir "$KUBECONFIG_DIR"
 
 set +x
 
 # if this is a PR, use a different tag, since PR tags expire
-if [ ! -z "$ghprbPullId" ]; then
+if [ -n "$ghprbPullId" ]; then
   export IMAGE_TAG="pr-${ghprbPullId}-${IMAGE_TAG}"
 fi
 
-if [ ! -z "$gitlabMergeRequestIid" ]; then
+if [ -n "$gitlabMergeRequestIid" ]; then
   export IMAGE_TAG="pr-${gitlabMergeRequestIid}-${IMAGE_TAG}"
 fi
 
@@ -58,7 +66,7 @@ fi
 export GIT_COMMIT=$(git rev-parse HEAD)
 export ARTIFACTS_DIR="$WORKSPACE/artifacts"
 
-rm -fr $ARTIFACTS_DIR && mkdir -p $ARTIFACTS_DIR
+rm -rf "$ARTIFACTS_DIR" && mkdir -p "$ARTIFACTS_DIR"
 
 # TODO: create custom jenkins agent image that has a lot of this stuff pre-installed
 export LANG=en_US.utf-8
@@ -71,7 +79,7 @@ python3 -m pip install --upgrade pip 'setuptools<58' wheel
 python3 -m pip install --upgrade 'crc-bonfire>=4.10.4'
 
 # clone repo to download cicd scripts
-rm -fr $BONFIRE_ROOT
+rm -rf "$BONFIRE_ROOT"
 echo "Fetching branch '$BONFIRE_REPO_BRANCH' of https://github.com/${BONFIRE_REPO_ORG}/cicd-tools.git"
 git clone --branch "$BONFIRE_REPO_BRANCH" "https://github.com/${BONFIRE_REPO_ORG}/cicd-tools.git" "$BONFIRE_ROOT"
 
@@ -86,27 +94,66 @@ add_cicd_bin_to_path() {
   if ! command -v oc_wrapper; then export PATH=$PATH:${CICD_ROOT}/bin; fi
 }
 
-check_available_server() {
-  echo "Checking connectivity to ephemeral cluster ..."
-  (curl -s $OC_LOGIN_SERVER > /dev/null)
-  RET_CODE=$?
-  if [ $RET_CODE -ge 1 ]; then echo "Connectivity check failed"; fi
-  return $RET_CODE
+try_login_openshift_cluster() {
+
+    local success cluster_url cluster_token cluster_id
+
+    success=1
+
+    for cluster_id in "${AVAILABLE_CLUSTERS[@]}"; do
+
+        cluster_url=''
+        cluster_token=''
+
+        _try_set_cluster_environment_variables "$cluster_id"
+
+        if [[ -z "$cluster_url" ]] || [[ -z "$cluster_token" ]]; then
+            echo "Environment variables for cluster '$cluster_id' not found"
+        else 
+            if _try_login_cluster "$cluster_url" "$cluster_token"; then
+                echo "Logged in to cluster '$cluster_id'"
+                success=0
+                break
+            else
+                echo "Failed logging into cluster: '$cluster_id'"
+            fi
+        fi
+    done
+
+    return "$success"
 }
 
-# Hotswap based on availability
-login_to_available_server() {
-  if check_available_server; then
-    # log in to ephemeral cluster
-    oc_wrapper login --token=$OC_LOGIN_TOKEN --server=$OC_LOGIN_SERVER
-    echo "logging in to Ephemeral cluster"
-  else
-    # switch to crcd cluster
-    oc_wrapper login --token=$OC_LOGIN_TOKEN_DEV --server=$OC_LOGIN_SERVER_DEV
-    echo "logging in to CRCD cluster"
-  fi
+_try_set_cluster_environment_variables() {
+
+    local cluster_id="$1"
+
+    case "$cluster_id" in
+
+        crcd)
+            cluster_url="$OC_LOGIN_SERVER_DEV"
+            cluster_token="$OC_LOGIN_TOKEN_DEV"
+            ;;
+
+        ephemeral)
+            cluster_url="$OC_LOGIN_SERVER"
+            cluster_token="$OC_LOGIN_TOKEN"
+            ;;
+
+        *)
+            echo "Unknown cluster $cluster_id"
+            return 1
+            ;;
+    esac
+}
+
+_try_login_cluster() {
+    local url="$1"
+    local token="$2"
+    oc_wrapper login --token="$token" --server="$url"
 }
 
 add_cicd_bin_to_path
-
-login_to_available_server
+if ! try_login_openshift_cluster; then
+    echo "Failed logging into any cluster!"
+    exit 1
+fi

@@ -12,7 +12,9 @@
 #IQE_PLUGINS="plugin1,plugin2" -- IQE plugins to run tests for, leave unset to use ClowdApp's iqePlugin value
 #IQE_ENV="something" -- value to set for ENV_FOR_DYNACONF, default is "clowder_smoke"
 #IQE_SELENIUM="true" -- whether to run IQE pod with a selenium container, default is "false"
-
+#IQE_RP_ARGS=True -- Turn on reporting to reportportal
+#IQE_IBUTSU_SOURCE="post_stage" -- update the ibutsu source for the current run
+#IQE_ENV_VARS="ENV_VAR1=value1,ENV_VAR2=value2" -- custom set of extra environment variables to set on IQE pod
 #NAMESPACE="mynamespace" -- namespace to deploy iqe pod into, usually already set by 'deploy_ephemeral_env.sh'
 
 # Env vars set by 'bootstrap.sh':
@@ -32,7 +34,11 @@ set -e
 : "${IQE_PLUGINS:='""'}"
 : "${IQE_ENV:=clowder_smoke}"
 : "${IQE_SELENIUM:=false}"
-
+: "${IQE_PARALLEL_ENABLED:='""'}"
+: "${IQE_PARALLEL_WORKER_COUNT:='""'}"
+: "${IQE_RP_ARGS:='""'}"
+: "${IQE_IBUTSU_SOURCE:='""'}"
+: "${IQE_ENV_VARS:=}"
 
 _running_in_rhel7() {
     grep -q "Red Hat Enterprise Linux.*7\." '/etc/redhat-release'
@@ -61,6 +67,34 @@ if [ "$IQE_SELENIUM" = "true" ]; then
     SELENIUM_ARG=" --selenium "
 fi
 
+ENV_VAR_ARGS=""
+if [ ! -z "$IQE_ENV_VARS" ]; then
+    IFS=',' read -ra values_array <<< "$IQE_ENV_VARS"
+    for i in "${values_array[@]}"; do
+        ENV_VAR_ARGS="${ENV_VAR_ARGS} --env-var $i"
+    done
+fi
+
+# check if there is a iqe-tests container image tag with the corresponding PR
+# number if not use the default IQE_IMAGE_TAG tag which you have to set in
+# order for this to work properly
+if [ ! -z "$ghprbPullId" ]; then
+    export IQE_IMAGE_TAG_TMP="${IQE_IMAGE_TAG}-pr-${ghprbPullId}"
+fi
+
+if [ ! -z "$gitlabMergeRequestIid" ]; then
+    export IQE_IMAGE_TAG_TMP="${IQE_IMAGE_TAG}-pr-${gitlabMergeRequestIid}"
+fi
+
+if [ ! -z "$IQE_IMAGE_TAG_TMP" ]; then
+    set +e
+    if docker manifest inspect quay.io/cloudservices/iqe-tests:"$IQE_IMAGE_TAG_TMP"; then
+        echo "Found IQE_IMAGE_TAG=$IQE_IMAGE_TAG_TMP. It will be used for testing."
+        export IQE_IMAGE_TAG="$IQE_IMAGE_TAG_TMP"
+    fi
+    set -e
+fi
+
 # Invoke the CJI using the options set via env vars
 set -x
 POD=$(
@@ -75,6 +109,11 @@ POD=$(
     --env "$IQE_ENV" \
     --cji-name $CJI_NAME \
     $SELENIUM_ARG \
+    --parallel-enabled $IQE_PARALLEL_ENABLED \
+    --parallel-worker-count $IQE_PARALLEL_WORKER_COUNT \
+    --rp-args $IQE_RP_ARGS \
+    --ibutsu-source $IQE_IBUTSU_SOURCE \
+    $ENV_VAR_ARGS \
     --namespace $NAMESPACE)
 set +x
 
@@ -151,6 +190,37 @@ if [ "$MINIO_SUCCESS" = false ]; then
     echo "ERROR: minio artifact copy failed"
     exit 1
 fi
+
+echo "checking if files exist"
+
+for PLUGIN in ${IQE_PLUGINS//,/ }; do
+    PLUGIN_NAME=${PLUGIN//-/_}
+    JUNIT_SEQUENTIAL_OUTPUTS=(
+        "iqe-${PLUGIN_NAME}-sequential.log"
+        "junit-${PLUGIN_NAME}-sequential.xml"
+    )
+
+    for file in "${JUNIT_SEQUENTIAL_OUTPUTS[@]}"; do
+        if [ ! -e "$ARTIFACTS_DIR/$file" ]; then
+            echo "The file $file does not exist. CJI Test(s) may have failed."
+            exit 1
+        fi
+    done
+
+    if [ "$IQE_PARALLEL_ENABLED" = "true" ]; then
+        JUNIT_PARALLEL_OUTPUTS=(
+            "iqe-${PLUGIN_NAME}-parallel.log"
+            "junit-${PLUGIN_NAME}-parallel.xml"
+        )
+
+        for file in "${JUNIT_PARALLEL_OUTPUTS[@]}"; do
+            if [ ! -e "$ARTIFACTS_DIR/$file" ]; then
+                echo "The file $file does not exist. CJI Test(s) may have failed."
+                exit 1
+            fi
+        done
+    fi
+done
 
 echo "copied artifacts from iqe pod: "
 ls -l $ARTIFACTS_DIR
