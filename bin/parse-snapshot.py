@@ -58,7 +58,12 @@ def main() -> None:
     snapshot: Snapshot = Snapshot.model_validate_json(snapshot_str)
     ret = []
     for component in snapshot.components:
-        component_name = os.environ.get("BONFIRE_COMPONENT_NAME", component.name)
+        try:
+            component_name = os.environ['BONFIRE_COMPONENT_NAME']
+            if component_name == "":
+                component_name = component.name
+        except KeyError:
+            component_name = component.name
         ret.extend((
             "--set-template-ref",
             f"{component_name}={component.source.git.revision}",
