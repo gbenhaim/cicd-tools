@@ -27,6 +27,7 @@ main() {
     local iqe_plugins="${IQE_PLUGINS}"
     local iqe_env="${IQE_ENV:-clowder_smoke}"
     local iqe_cji_timeout="${IQE_CJI_TIMEOUT:-10m}"
+    local dynaconf_user_provider_rbac_enabled="${DYNACONF_USER_PROVIDER__rbac_enabled:-true}"
 
     local selenium_arg=""
     if [[ "$selenium" == "true" ]]; then
@@ -46,6 +47,7 @@ main() {
     --plugins "$iqe_plugins" \
     --env "$iqe_env" \
     --cji-name "$cji_name" \
+    --env-var "$dynaconf_user_provider_rbac_enabled" \
     $selenium_arg \
     --namespace "$ns")
 
