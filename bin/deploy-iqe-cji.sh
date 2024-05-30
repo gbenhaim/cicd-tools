@@ -13,8 +13,8 @@ main() {
     # Mandatory arguments
     local ns="${1:?Namespace was not provided}"
     local ns_requester="${2:?Namespace requester name was not provided}"
-    local component_name="${BONFIRE_COMPONENT_NAME:-${COMPONENT_NAME:?Component name not provided}}"
-    local cji_name=$component_name
+    local clowd_app_name="${APP_NAME}"
+    local cji_name="${BONFIRE_COMPONENT_NAME:-${COMPONENT_NAME:?Component name not provided}}"
 
     # Optional arguments
     local selenium="${IQE_SELENIUM:-false}"
@@ -36,7 +36,7 @@ main() {
     export BONFIRE_NS_REQUESTER="$ns_requester"
 
     # Invoke the CJI using the options set via env vars
-    pod=$(bonfire deploy-iqe-cji "$component_name" \
+    pod=$(bonfire deploy-iqe-cji "$clowd_app_name" \
     --marker "$iqe_marker_expression" \
     --filter "$iqe_filter_expression" \
     --image-tag "${iqe_image_tag}" \
