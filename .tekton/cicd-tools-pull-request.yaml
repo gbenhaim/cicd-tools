@@ -412,6 +412,8 @@ spec:
     - name: workspace
     - name: git-auth
       optional: true
+  taskRunTemplate:
+    serviceAccountName: build-pipeline-cicd-tools
   workspaces:
   - name: workspace
     volumeClaimTemplate:
