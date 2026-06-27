@@ -147,7 +147,7 @@ spec:
         - name: name
           value: init
         - name: bundle
-          value: quay.io/redhat-appstudio-tekton-catalog/task-init:0.1@sha256:159b85246559defbabbd55a42da0b7f618a4307d13bd4d6eb486efb81d1dcfb5
+          value: quay.io/konflux-ci/tekton-catalog/task-init:0.1@sha256:36b73ac7d413ec852780300b881f7ae8c97f28ce1677cd7b47f88e7bf8744237
         - name: kind
           value: task
         resolver: bundles
