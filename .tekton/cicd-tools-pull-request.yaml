@@ -377,7 +377,7 @@ spec:
         - name: name
           value: clamav-scan
         - name: bundle
-          value: quay.io/redhat-appstudio-tekton-catalog/task-clamav-scan:0.1@sha256:1779f85108dcc55837ecb103b6524242872056a04ccdd726bbf1e718dcb8dc30
+          value: quay.io/redhat-appstudio-tekton-catalog/task-clamav-scan:0.1@sha256:1b186d53eeab12f0ae1b7aa333e9cf2b2c9dcc9751f5e940ca935a168bba5a7d
         - name: kind
           value: task
         resolver: bundles
