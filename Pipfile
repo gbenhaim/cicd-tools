@@ -6,7 +6,7 @@ name = "pypi"
 [packages]
 crc-bonfire = ">=5.7.1"
 pydantic = "*"
-awscli = "==1.29.28"
+awscli = "==1.46.1"
 
 [dev-packages]
 
