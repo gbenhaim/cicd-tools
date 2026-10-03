@@ -32,19 +32,6 @@ spec:
     value: '{{revision}}'
   pipelineSpec:
     finally:
-    - name: show-sbom
-      params:
-      - name: IMAGE_URL
-        value: $(tasks.build-container.results.IMAGE_URL)
-      taskRef:
-        params:
-        - name: name
-          value: show-sbom
-        - name: bundle
-          value: quay.io/redhat-appstudio-tekton-catalog/task-show-sbom:0.1@sha256:4b8a47b3cd3f80d0a9ec46ec43fd2ebe0487979f351a8eeebe5aa04854d3861c
-        - name: kind
-          value: task
-        resolver: bundles
     - name: show-summary
       params:
       - name: pipelinerun-name
